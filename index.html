@@ -1,0 +1,2233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ophiuchus Star Map with Constellation Features</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .star {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .star:hover {
+            filter: brightness(1.5);
+        }
+        .star-label {
+            pointer-events: none;
+            text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
+        }
+        .special-star {
+            stroke-width: 1.5px;
+            stroke-dasharray: 2,1;
+        }
+        .binary-star {
+            stroke-width: 2px;
+            stroke-dasharray: 3,2;
+            stroke: #00FFFF;
+        }
+        .variable-star {
+            stroke-width: 2px;
+            stroke-dasharray: 4,2;
+            stroke: #FF00FF;
+        }
+        .variable-star-pulse {
+            animation: pulse 10s infinite alternate;
+        }
+        @keyframes pulse {
+            0% { r: 2; opacity: 0.7; }
+            50% { r: 7; opacity: 0.3; }
+            100% { r: 2; opacity: 0.7; }
+        }
+        .dark .star-label {
+            text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
+        }
+        .mini-map {
+            transition: opacity 0.3s ease;
+        }
+        .mini-map:hover {
+            opacity: 0.9 !important;
+        }
+        #view-box {
+            pointer-events: none;
+            opacity: 0.5;
+        }
+        .zoom-indicator {
+            position: absolute;
+            pointer-events: none;
+            border-radius: 50%;
+            border: 2px solid rgba(93, 92, 222, 0.8);
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            transition: all 0.3s ease;
+        }
+        .dark {
+            color-scheme: dark;
+        }
+        .proper-motion {
+            pointer-events: none;
+        }
+        .constellation-feature {
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .feature-label {
+            pointer-events: none;
+            text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
+            font-style: italic;
+            opacity: 0.9;
+        }
+        .time-slider {
+            width: 100%;
+        }
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(100, 100, 100, 0.1);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(100, 100, 100, 0.5);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 100, 100, 0.7);
+        }
+        .motion-arrow {
+            pointer-events: none;
+        }
+        .slider-tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            transform: translateX(-50%);
+            white-space: nowrap;
+        }
+        .feature-tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            z-index: 1000;
+            pointer-events: none;
+            max-width: 250px;
+            transform: translate(-50%, -100%);
+            transition: opacity 0.2s;
+        }
+        .distance-marker {
+            stroke: #00FFFF;
+            stroke-dasharray: 4,3;
+            stroke-width: 1.5;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+        .arc-label {
+            fill: #00FFFF;
+            font-size: 10px;
+            pointer-events: none;
+            text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
+        }
+        .light-curve {
+            fill: none;
+            stroke: #FF00FF;
+            stroke-width: 2;
+        }
+        .light-curve-area {
+            fill: url(#light-curve-gradient);
+            opacity: 0.3;
+        }
+        .axis {
+            font-size: 10px;
+        }
+        .axis path, .axis line {
+            stroke: #888;
+        }
+        .chart-grid line {
+            stroke: #ccc;
+            stroke-opacity: 0.2;
+            shape-rendering: crispEdges;
+        }
+        .dark .chart-grid line {
+            stroke: #666;
+        }
+        .dark .axis text {
+            fill: #ccc;
+        }
+        .variable-period-marker {
+            fill: none;
+            stroke: #FF00FF;
+            stroke-width: 2;
+            stroke-dasharray: 4,4;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-200">
+    <div class="container mx-auto px-4 py-6">
+        <h1 class="text-3xl font-bold text-center mb-2">Stars in Ophiuchus Constellation</h1>
+        <p class="text-center mb-6 text-gray-600 dark:text-gray-400">Interactive map with proper motion and constellation features</p>
+        
+        <!-- Controls -->
+        <div class="flex flex-wrap gap-4 mb-4 justify-center">
+            <div>
+                <label for="magnitude-filter" class="block text-sm font-medium mb-1">Max Magnitude</label>
+                <select id="magnitude-filter" class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-base">
+                    <option value="15">All stars</option>
+                    <option value="3">Bright stars (≤ 3)</option>
+                    <option value="4">Medium bright (≤ 4)</option>
+                    <option value="5">Visible to naked eye (≤ 5)</option>
+                    <option value="6">Limit of naked eye (≤ 6)</option>
+                </select>
+            </div>
+            <div>
+                <label for="sort-by" class="block text-sm font-medium mb-1">Sort By</label>
+                <select id="sort-by" class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-base">
+                    <option value="brightness">Brightness</option>
+                    <option value="name">Name</option>
+                    <option value="distance">Distance</option>
+                    <option value="spectral">Spectral Class</option>
+                    <option value="properMotion">Proper Motion</option>
+                </select>
+            </div>
+            <div>
+                <label for="search" class="block text-sm font-medium mb-1">Search</label>
+                <input type="text" id="search" placeholder="Star name or designation" 
+                    class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-base w-full">
+            </div>
+            <div>
+                <label for="display-mode" class="block text-sm font-medium mb-1">Display</label>
+                <select id="display-mode" class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-base">
+                    <option value="map">Star Map</option>
+                    <option value="table">Data Table</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- View toggle buttons -->
+        <div class="flex flex-wrap justify-center gap-3 mb-4">
+            <button id="toggle-dark-mode" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+                <span class="ml-1">Toggle Dark Mode</span>
+            </button>
+            <button id="toggle-proper-motion" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span class="ml-1">Show Proper Motion</span>
+            </button>
+            <button id="toggle-features" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                </svg>
+                <span class="ml-1">Show Constellation Features</span>
+            </button>
+            <button id="toggle-variable" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+                </svg>
+                <span class="ml-1">Show Variable Stars</span>
+            </button>
+        </div>
+
+        <!-- Time controls for proper motion -->
+        <div id="time-controls" class="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 hidden">
+            <h3 class="text-lg font-medium mb-3">Proper Motion Time Controls</h3>
+            <div class="flex items-center mb-2">
+                <div class="text-sm w-20">Time Scale:</div>
+                <select id="time-scale" class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-sm flex-grow">
+                    <option value="100">100 years</option>
+                    <option value="500">500 years</option>
+                    <option value="1000">1,000 years</option>
+                    <option value="5000">5,000 years</option>
+                    <option value="10000" selected>10,000 years</option>
+                    <option value="50000">50,000 years</option>
+                    <option value="100000">100,000 years</option>
+                </select>
+            </div>
+            <div class="flex items-center relative">
+                <div class="text-sm w-20">Time:</div>
+                <div class="flex-grow relative">
+                    <input type="range" id="time-slider" class="time-slider" min="0" max="100" value="0" step="1">
+                    <div id="slider-tooltip" class="slider-tooltip hidden">0 years</div>
+                </div>
+                <div id="time-display" class="text-sm w-20 text-right">0 years</div>
+            </div>
+            <div class="flex justify-between mt-4">
+                <button id="play-motion" class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Play Animation
+                </button>
+                <button id="reset-motion" class="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">
+                    Reset
+                </button>
+            </div>
+        </div>
+
+        <!-- Star map view -->
+        <div id="map-view" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 mb-6">
+            <div id="star-map-container" class="w-full h-[70vh] relative overflow-hidden">
+                <svg id="star-map" class="w-full h-full">
+                    <!-- Gradient definitions for light curves -->
+                    <defs>
+                        <linearGradient id="light-curve-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#FF00FF;stop-opacity:0.7" />
+                            <stop offset="100%" style="stop-color:#FF00FF;stop-opacity:0" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <div id="zoom-controls" class="absolute top-4 right-4 bg-white dark:bg-gray-700 rounded-lg shadow-lg p-2 flex flex-col">
+                    <button id="zoom-in" class="p-1 mb-1 bg-gray-200 dark:bg-gray-600 rounded hover:bg-gray-300 dark:hover:bg-gray-500" title="Zoom In">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                    </button>
+                    <button id="zoom-out" class="p-1 mb-1 bg-gray-200 dark:bg-gray-600 rounded hover:bg-gray-300 dark:hover:bg-gray-500" title="Zoom Out">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6" />
+                        </svg>
+                    </button>
+                    <button id="zoom-fit" class="p-1 mb-1 bg-gray-200 dark:bg-gray-600 rounded hover:bg-gray-300 dark:hover:bg-gray-500" title="Fit to View">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                        </svg>
+                    </button>
+                    <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
+                    <div id="zoom-level" class="text-xs text-center font-mono">100%</div>
+                </div>
+                <div id="mini-map" class="absolute bottom-4 left-4 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg w-32 h-32 overflow-hidden">
+                    <svg id="mini-map-svg" class="w-full h-full"></svg>
+                    <div id="view-box" class="absolute border-2 border-blue-500 pointer-events-none"></div>
+                </div>
+                <div id="feature-tooltip" class="feature-tooltip hidden"></div>
+            </div>
+        </div>
+        
+        <!-- Table view -->
+        <div id="table-view" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 mb-6 hidden">
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead class="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer" data-sort="name">Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer" data-sort="brightness">Magnitude</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer" data-sort="distance">Distance (ly)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer" data-sort="spectral">Spectral Class</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer" data-sort="properMotion">Proper Motion</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody id="star-table-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        <!-- Table rows will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Star details panel -->
+        <div id="star-details" class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6 hidden">
+            <div class="flex justify-between items-start mb-4">
+                <h2 id="detail-title" class="text-2xl font-bold"></h2>
+                <button id="close-details" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <div class="mb-4">
+                        <h3 class="text-lg font-semibold mb-2">Basic Information</h3>
+                        <dl class="grid grid-cols-2 gap-1">
+                            <dt class="text-gray-500 dark:text-gray-400">Magnitude:</dt>
+                            <dd id="detail-magnitude"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Absolute Magnitude:</dt>
+                            <dd id="detail-abs-magnitude"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Distance:</dt>
+                            <dd id="detail-distance"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Spectral Class:</dt>
+                            <dd id="detail-spectral"></dd>
+                        </dl>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-2">Designations</h3>
+                        <dl class="grid grid-cols-2 gap-1">
+                            <dt class="text-gray-500 dark:text-gray-400">Bayer:</dt>
+                            <dd id="detail-bayer"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Flamsteed:</dt>
+                            <dd id="detail-flamsteed"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">HD:</dt>
+                            <dd id="detail-hd"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">HIP:</dt>
+                            <dd id="detail-hip"></dd>
+                        </dl>
+                    </div>
+                </div>
+                <div>
+                    <div class="mb-4">
+                        <h3 class="text-lg font-semibold mb-2">Coordinates</h3>
+                        <dl class="grid grid-cols-2 gap-1">
+                            <dt class="text-gray-500 dark:text-gray-400">Right Ascension:</dt>
+                            <dd id="detail-ra"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Declination:</dt>
+                            <dd id="detail-dec"></dd>
+                        </dl>
+                    </div>
+                    <div class="mb-4">
+                        <h3 class="text-lg font-semibold mb-2">Proper Motion</h3>
+                        <dl class="grid grid-cols-2 gap-1">
+                            <dt class="text-gray-500 dark:text-gray-400">Proper Motion RA:</dt>
+                            <dd id="detail-pmra"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Proper Motion Dec:</dt>
+                            <dd id="detail-pmdec"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Total Proper Motion:</dt>
+                            <dd id="detail-pm-total"></dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Motion in 10,000 years:</dt>
+                            <dd id="detail-pm-10000"></dd>
+                        </dl>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-2">Additional Information</h3>
+                        <p id="detail-notes" class="text-gray-600 dark:text-gray-400"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6">
+                <div class="inline-block bg-blue-100 dark:bg-blue-900 rounded-full px-3 py-1 text-sm font-semibold text-blue-800 dark:text-blue-200 mr-2 mb-2">
+                    Constellation: Ophiuchus
+                </div>
+                <div id="detail-tags" class="mt-2">
+                    <!-- Tags will be populated here -->
+                </div>
+            </div>
+            <div id="special-feature" class="mt-4 p-4 bg-purple-50 dark:bg-purple-900 rounded-lg hidden">
+                <h3 class="text-lg font-semibold mb-2 text-purple-800 dark:text-purple-100">Special Feature</h3>
+                <p id="special-feature-text" class="text-purple-700 dark:text-purple-200"></p>
+            </div>
+            <div id="binary-system" class="mt-4 p-4 bg-cyan-50 dark:bg-cyan-900 rounded-lg hidden">
+                <h3 class="text-lg font-semibold mb-2 text-cyan-800 dark:text-cyan-100">Multiple Star System</h3>
+                <p id="binary-system-text" class="text-cyan-700 dark:text-cyan-200"></p>
+                <div id="binary-companions" class="mt-3"></div>
+            </div>
+            <div id="variable-star" class="mt-4 p-4 bg-fuchsia-50 dark:bg-fuchsia-900 rounded-lg hidden">
+                <h3 class="text-lg font-semibold mb-2 text-fuchsia-800 dark:text-fuchsia-100">Variable Star Information</h3>
+                <p id="variable-star-text" class="text-fuchsia-700 dark:text-fuchsia-200"></p>
+                <div id="light-curve-container" class="mt-4 w-full h-48 bg-gray-50 dark:bg-gray-800 rounded overflow-hidden"></div>
+                <div class="mt-3 text-sm flex justify-between text-fuchsia-700 dark:text-fuchsia-200">
+                    <div>Minimum magnitude: <span id="min-magnitude"></span></div>
+                    <div>Maximum magnitude: <span id="max-magnitude"></span></div>
+                    <div>Period: <span id="period-value"></span> days</div>
+                </div>
+            </div>
+            <div id="radio-flare" class="mt-4 p-4 bg-indigo-50 dark:bg-indigo-900 rounded-lg hidden">
+                <h3 class="text-lg font-semibold mb-2 text-indigo-800 dark:text-indigo-100">Radio Flare Event</h3>
+                <p id="radio-flare-text" class="text-indigo-700 dark:text-indigo-200"></p>
+            </div>
+        </div>
+
+        <!-- Educational Panel -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-bold mb-4">About Ophiuchus Constellation</h2>
+            <p class="mb-4">Ophiuchus is a large constellation located around the celestial equator. Its name comes from the Greek word "ophioukhos" meaning "serpent-bearer," and it depicts a man grasping a snake (represented by the constellation Serpens).</p>
+            <p class="mb-4">It is one of the 48 constellations listed by the 2nd-century astronomer Ptolemy and remains one of the 88 modern constellations. Ophiuchus is located between Aquila, Serpens, Scorpius, Sagittarius, and Hercules, northwest of the center of the Milky Way.</p>
+            <div class="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                <p>Enable "Constellation Features" to see special annotations and astronomical relationships between stars.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize dark mode based on system preference
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (event.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+
+        // Dark mode toggle
+        document.getElementById('toggle-dark-mode').addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+        });
+
+        // Parse RA and Dec from strings to decimal degrees
+        function parseRA(raString) {
+            // Format example: "17h 34m 56.00s"
+            const match = raString.match(/(\d+)h\s+(\d+)m\s+(\d+\.\d+)s/);
+            if (match) {
+                const hours = parseInt(match[1]);
+                const minutes = parseInt(match[2]);
+                const seconds = parseFloat(match[3]);
+                // Convert to decimal degrees (15 degrees per hour)
+                return (hours + minutes/60 + seconds/3600) * 15;
+            }
+            return 0;
+        }
+
+        function parseDec(decString) {
+            // Format example: "+12° 33′ 38.1″"
+            const match = decString.match(/([\+\-]?)(\d+)°\s+(\d+)′\s+(\d+\.\d+)″/);
+            if (match) {
+                const sign = match[1] === '-' ? -1 : 1;
+                const degrees = parseInt(match[2]);
+                const minutes = parseInt(match[3]);
+                const seconds = parseFloat(match[4]);
+                // Convert to decimal degrees
+                return sign * (degrees + minutes/60 + seconds/3600);
+            }
+            return 0;
+        }
+
+        // Define binary/multiple star relationships
+        const multipleSystems = {
+            "36_oph": {
+                name: "36 Ophiuchi Triple System",
+                description: "36 Ophiuchi is a triple star system located 19.5 light-years from Earth in the constellation Ophiuchus. The components A and B are nearly identical orange K-type main-sequence dwarfs, while component C is more distant. The A-B pair is separated by 5.1 arcseconds at a position angle of 139 degrees, while C is 731.6 arcseconds from A at a position angle of 74 degrees.",
+                components: ["36 Oph A", "36 Oph B", "36 Oph C"],
+                angular_separations: {
+                    "AB": 5.1, // arcseconds
+                    "AC": 731.6 // arcseconds
+                },
+                position_angles: {
+                    "AB": 139, // degrees
+                    "AC": 74 // degrees
+                }
+            },
+            "X_oph": {
+                name: "X Ophiuchi Binary System",
+                description: "X Ophiuchi is a binary star system that exhibits Mira-type variability with a period of 328.85 days. The star's brightness varies dramatically from magnitude 5.9 at maximum to 9.2 at minimum. In 1992, astronomers detected a strong radio flare event from this system at a frequency of 1,667 MHz, which is unusual for Mira variables.",
+                components: ["X Oph"],
+                variable_data: {
+                    type: "Mira",
+                    min_mag: 9.2,
+                    max_mag: 5.9,
+                    period: 328.85, // days
+                    radio_flare: true
+                }
+            }
+        };
+
+        // Variable star data
+        const variableStarData = {
+            "X_oph": {
+                // Generate a synthetic light curve for X Ophiuchi
+                generateLightCurve: function() {
+                    const period = 328.85; // days
+                    const minMag = 9.2;
+                    const maxMag = 5.9;
+                    const points = [];
+                    
+                    // Generate one full period plus a bit more
+                    for (let day = 0; day <= period * 1.2; day += period / 50) {
+                        // Mira variables have asymmetric light curves - they brighten faster than they fade
+                        // Model this with a modified sine wave
+                        let phase = (day % period) / period;
+                        let magnitude;
+                        
+                        if (phase < 0.3) {
+                            // Rapid brightening phase
+                            magnitude = minMag - (minMag - maxMag) * Math.pow(phase / 0.3, 0.7);
+                        } else {
+                            // Slower dimming phase
+                            magnitude = maxMag + (minMag - maxMag) * Math.pow((phase - 0.3) / 0.7, 1.3);
+                        }
+                        
+                        points.push({
+                            day: day,
+                            magnitude: magnitude
+                        });
+                    }
+                    
+                    return points;
+                },
+                
+                // Radio flare event info
+                radioFlare: {
+                    year: 1992,
+                    frequency: 1667, // MHz
+                    description: "In 1992, astronomers detected an unusual strong radio flare from X Ophiuchi at a frequency of 1,667 MHz. This was unexpected because Mira variables typically don't exhibit such radio activity. The flare could be related to magnetic activity or interaction with a companion star."
+                }
+            }
+        };
+
+        // Constellation features data
+        const constellationFeatures = [
+            {
+                name: "Right Shoulder",
+                type: "bodyPart",
+                stars: ["γ Oph", "β Oph"],
+                description: "The right shoulder of Ophiuchus, formed by Gamma Ophiuchi (Bake-eo) and Beta Ophiuchi (Cebalrai). These stars represent an important anatomical feature of the serpent bearer."
+            },
+            {
+                name: "Serpent Bearer's Head",
+                type: "bodyPart",
+                stars: ["α Oph"],
+                description: "Alpha Ophiuchi (Ras Alhague) represents the head of Ophiuchus, the serpent bearer. The name Ras Alhague comes from the Arabic رأس الحواء (raʾs al-ḥawwāʾ) which means 'the head of the snake collector'."
+            },
+            {
+                name: "Left Leg",
+                type: "bodyPart",
+                stars: ["θ Oph", "ν Oph"],
+                description: "Theta Ophiuchi and Nu Ophiuchi form the left leg of the serpent bearer figure."
+            },
+            {
+                name: "Right Foot",
+                type: "bodyPart",
+                stars: ["η Oph"],
+                description: "Eta Ophiuchi (Sabik) marks the right foot of Ophiuchus."
+            },
+            {
+                name: "36 Ophiuchi System",
+                type: "multipleSystem",
+                stars: ["36 Oph A", "36 Oph B", "36 Oph C"],
+                description: "The 36 Ophiuchi triple star system is one of the closest star systems to Earth at just 19.5 light-years away. Components A (Guniibuu) and B are nearly identical orange K-type dwarfs that orbit each other, while component C is more distant from the pair."
+            },
+            {
+                name: "X Ophiuchi Variable Star",
+                type: "variableStar",
+                stars: ["X Oph"],
+                description: "X Ophiuchi is a Mira-type variable star with a dramatic magnitude range from 5.9 to 9.2 over a period of 328.85 days. It's also a binary system that exhibited an unusual radio flare in 1992."
+            }
+        ];
+
+        // Star data parsing with proper motion data and special features
+        const starsData = [
+            { name: "α Oph (Ras Alhague)", bayer: "α", flamsteed: "55", hd: "159561", hip: "86032", ra: "17h 34m 56.00s", dec: "+12° 33′ 38.1″", visMag: 2.08, absMag: 1.30, distance: 47, spectralClass: "A5III", notes: "Ras Alhague, Rasalhague. The name comes from Arabic رأس الحواء (raʾs al-ḥawwāʾ) which means 'the head of the snake collector'.", pmRA: 108.5, pmDec: -22.7, specialFeature: "head", specialText: "Alpha Ophiuchi represents the head of the serpent bearer. It is the brightest star in the constellation with a visual magnitude of 2.08." },
+            { name: "η Oph (Sabik)", bayer: "η", flamsteed: "35", hd: "155125", hip: "84012", ra: "17h 10m 22.66s", dec: "−15° 43′ 30.5″", visMag: 2.43, absMag: 0.37, distance: 84, spectralClass: "A2.5Va", notes: "Sabik. Marks the right foot of the serpent bearer.", pmRA: -40.8, pmDec: -96.7, specialFeature: "foot", specialText: "Eta Ophiuchi (Sabik) marks the right foot of the serpent bearer figure. The name Sabik is derived from Arabic and means 'the preceding one'." },
+            { name: "ζ Oph", bayer: "ζ", flamsteed: "13", hd: "149757", hip: "81377", ra: "16h 37m 09.53s", dec: "−10° 34′ 01.7″", visMag: 2.54, absMag: -3.20, distance: 458, spectralClass: "O9.5V", notes: "Han; γ Cas variable; Be star. One of the fastest-rotating stars known, with a rotational velocity of 400 km/s at its equator.", pmRA: 13.1, pmDec: 25.4, specialFeature: "runaway", specialText: "Zeta Ophiuchi is a massive O-type main-sequence star and one of the brightest O stars in the sky. It's a 'runaway star' moving at a very high velocity of about 24 km/s relative to neighboring stars, possibly due to a supernova explosion of a former companion star." },
+            { name: "δ Oph (Yed Prior)", bayer: "δ", flamsteed: "1", hd: "146051", hip: "79593", ra: "16h 14m 20.77s", dec: "−03° 41′ 38.3″", visMag: 2.73, absMag: -0.86, distance: 170, spectralClass: "M1III", notes: "Yed Prior, Yad, Jed Prior. Along with Epsilon Ophiuchi (Yed Posterior), it represents the left hand of Ophiuchus.", pmRA: -32.1, pmDec: -45.6, specialFeature: "hand", specialText: "Delta Ophiuchi (Yed Prior) is one of the 'Yeds', representing the left hand of the serpent bearer. The name Yed comes from the Arabic 'yad' meaning 'hand'." },
+            { name: "β Oph (Cebalrai)", bayer: "β", flamsteed: "60", hd: "161096", hip: "86742", ra: "17h 43m 28.38s", dec: "+04° 34′ 00.9″", visMag: 2.76, absMag: 0.76, distance: 82, spectralClass: "K2III", notes: "Cebalrai, Celbalrai, Celb-al-Rai, Kelb Alrai, Cheleb. Forms the right shoulder of Ophiuchus with Gamma Ophiuchi.", pmRA: -59.7, pmDec: -167.3, specialFeature: "right_shoulder", specialText: "Beta Ophiuchi (Cebalrai) forms one side of the right shoulder of the serpent bearer together with Gamma Ophiuchi. The name Cebalrai comes from the Arabic كلب الراعي‎ (kalb al-rāʿī) meaning 'the shepherd's dog'." },
+            { name: "κ Oph", bayer: "κ", flamsteed: "27", hd: "153210", hip: "83000", ra: "16h 57m 40.27s", dec: "+09° 22′ 30.2″", visMag: 3.19, absMag: 1.09, distance: 86, spectralClass: "K2IIIvar", notes: "Forms part of the body of the serpent bearer.", pmRA: -21.3, pmDec: -98.5 },
+            { name: "ε Oph (Yed Posterior)", bayer: "ε", flamsteed: "2", hd: "146791", hip: "79882", ra: "16h 18m 19.24s", dec: "−04° 41′ 33.4″", visMag: 3.23, absMag: 0.64, distance: 107, spectralClass: "G8III", notes: "Yed Posterior, Yad, Jed Posterior. Together with Delta Ophiuchi (Yed Prior), forms the left hand of Ophiuchus grasping the serpent.", pmRA: -29.4, pmDec: -84.2, specialFeature: "hand", specialText: "Epsilon Ophiuchi (Yed Posterior) is the second of the 'Yeds', representing the hand of the serpent bearer. It follows Delta Ophiuchi (Yed Prior) in right ascension, hence the name 'Posterior'." },
+            { name: "θ Oph", bayer: "θ", flamsteed: "42", hd: "157056", hip: "84970", ra: "17h 22m 00.58s", dec: "−24° 59′ 58.2″", visMag: 3.27, absMag: -2.92, distance: 563, spectralClass: "B2IV", notes: "β Cep variable. Forms part of the left leg of Ophiuchus.", pmRA: 1.7, pmDec: -8.4, specialFeature: "leg" },
+            { name: "ν Oph (Sinistra)", bayer: "ν", flamsteed: "64", hd: "163917", hip: "88048", ra: "17h 59m 01.60s", dec: "−09° 46′ 24.1″", visMag: 3.32, absMag: -0.03, distance: 153, spectralClass: "K0III", notes: "Sinistra; has two brown dwarfs. Forms part of the left leg of Ophiuchus.", pmRA: -34.5, pmDec: -173.1, specialFeature: "leg" },
+            { name: "72 Oph", bayer: "", flamsteed: "72", hd: "165777", hip: "88771", ra: "18h 07m 21.02s", dec: "+09° 33′ 49.2″", visMag: 3.71, absMag: 1.69, distance: 83, spectralClass: "A4IVs", notes: "", pmRA: 48.9, pmDec: 42.1 },
+            { name: "γ Oph (Bake-eo)", bayer: "γ", flamsteed: "62", hd: "161868", hip: "87108", ra: "17h 47m 53.57s", dec: "+02° 42′ 26.9″", visMag: 3.75, absMag: 1.43, distance: 95, spectralClass: "A0V", notes: "Also named Bake-eo. Forms the right shoulder of Ophiuchus with Beta Ophiuchi. Fourth-magnitude star in the constellation.", pmRA: 43.4, pmDec: -70.8, specialFeature: "right_shoulder", specialText: "Gamma Ophiuchi, also named Bake-eo, is a fourth-magnitude star that forms the serpent-holder's right shoulder together with Beta Ophiuchi. It is an A-type main sequence star with a visual magnitude of 3.75, located approximately 95 light-years from Earth." },
+            { name: "λ Oph (Marfik)", bayer: "λ", flamsteed: "10", hd: "148857", hip: "80883", ra: "16h 30m 54.84s", dec: "+01° 59′ 02.8″", visMag: 3.82, absMag: 0.28, distance: 166, spectralClass: "A2V", notes: "Marfik, Marfic, Marsic. The name comes from Arabic المرفق (al-mirfaq) meaning 'the elbow'.", pmRA: -13.7, pmDec: -33.2, specialFeature: "elbow", specialText: "Lambda Ophiuchi (Marfik) marks the elbow of the serpent bearer. Its name Marfik derives from the Arabic word for 'elbow'." },
+            { name: "67 Oph", bayer: "", flamsteed: "67", hd: "164353", hip: "88192", ra: "18h 00m 38.72s", dec: "+02° 55′ 53.7″", visMag: 3.93, absMag: -4.26, distance: 1417, spectralClass: "B5Ib", notes: "", pmRA: -2.2, pmDec: -5.6 },
+            { name: "70 Oph", bayer: "", flamsteed: "70", hd: "165341", hip: "88601", ra: "18h 05m 27.21s", dec: "+02° 30′ 08.8″", visMag: 4.03, absMag: 5.50, distance: 17, spectralClass: "K0V", notes: "SB nearby. One of the closest star systems to Earth in Ophiuchus.", pmRA: 135.9, pmDec: -1045.8, specialFeature: "nearby", specialText: "70 Ophiuchi is a binary star system only 17 light-years from Earth, making it one of the closest star systems to our solar system. It has one of the highest proper motions of stars visible to the naked eye." },
+            { name: "44 Oph", bayer: "", flamsteed: "44", hd: "157792", hip: "85340", ra: "17h 26m 22.22s", dec: "−24° 10′ 30.1″", visMag: 4.16, absMag: 2.11, distance: 84, spectralClass: "A3IV:m", notes: "", pmRA: 18.9, pmDec: -37.8 },
+            { name: "χ Oph", bayer: "χ", flamsteed: "7", hd: "148184", hip: "80569", ra: "16h 27m 01.44s", dec: "−18° 27′ 22.3″", visMag: 4.22, absMag: -1.66, distance: 489, spectralClass: "B2Vne", notes: "γ Cas variable. A Be star with a circumstellar disk of material ejected from its rapid rotation.", pmRA: -5.5, pmDec: -7.3 },
+            { name: "45 Oph", bayer: "", flamsteed: "45", hd: "157919", hip: "85423", ra: "17h 27m 21.26s", dec: "−29° 52′ 00.1″", visMag: 4.28, absMag: 1.61, distance: 111, spectralClass: "F3III", notes: "", pmRA: 23.7, pmDec: -52.6 },
+            { name: "φ Oph", bayer: "φ", flamsteed: "8", hd: "148786", hip: "80894", ra: "16h 31m 08.39s", dec: "−16° 36′ 45.5″", visMag: 4.29, absMag: 0.25, distance: 210, spectralClass: "G8/K0III", notes: "", pmRA: -18.2, pmDec: -32.9 },
+            // Adding 36 Ophiuchi triple system components
+            { name: "36 Oph A (Guniibuu)", bayer: "", flamsteed: "36", hd: "155886", hip: "84405", ra: "17h 15m 20.80s", dec: "−26° 36′ 05.0″", visMag: 5.07, absMag: 5.49, distance: 19.5, spectralClass: "K0V", notes: "Guniibuu. Component A of the 36 Ophiuchi triple star system, which is only 19.5 light-years from Earth. It is a nearly identical twin to component B.", pmRA: -178.6, pmDec: -562.7, specialFeature: "multiple", systemID: "36_oph", component: "A", specialText: "36 Ophiuchi A (Guniibuu) is the primary component of the 36 Ophiuchi triple star system, one of the closest star systems to Earth at just 19.5 light-years away. It's a K-type orange dwarf star with an active chromosphere." },
+            { name: "36 Oph B", bayer: "", flamsteed: "36", hd: "155885", hip: "84478", ra: "17h 15m 21.29s", dec: "−26° 36′ 00.2″", visMag: 5.11, absMag: 5.44, distance: 19.5, spectralClass: "K1V", notes: "Component B of the 36 Ophiuchi triple star system. Nearly identical to component A.", pmRA: -179.3, pmDec: -563.2, specialFeature: "multiple", systemID: "36_oph", component: "B", specialText: "36 Ophiuchi B is the secondary component of the 36 Ophiuchi triple star system. It's very similar to component A, as both are orange K-type main-sequence dwarf stars. The A-B pair orbits each other at a separation of about 5.1 arcseconds." },
+            { name: "36 Oph C", bayer: "", flamsteed: "36", hd: "156026", hip: "84478", ra: "17h 16m 13.68s", dec: "−26° 32′ 36.3″", visMag: 6.33, absMag: 7.45, distance: 19.5, spectralClass: "K5V", notes: "Component C of the 36 Ophiuchi triple star system. Located farther from the A-B pair at about 732 arcseconds from component A.", pmRA: -180.5, pmDec: -579.8, specialFeature: "multiple", systemID: "36_oph", component: "C", specialText: "36 Ophiuchi C is the tertiary component of the 36 Ophiuchi system. It's a K5V star located at a much greater angular separation from the A-B pair (over 700 arcseconds) than the A-B separation (about 5 arcseconds)." },
+            // Adding X Ophiuchi Mira variable
+            { name: "X Oph", bayer: "", flamsteed: "", hd: "172171", hip: "91389", ra: "18h 38m 21.13s", dec: "+08° 50′ 01.7″", visMag: 5.9, absMag: -2.1, distance: 560, spectralClass: "M5e-M9e", notes: "Mira-type variable star with magnitude range from 5.9 to 9.2 over a period of 328.85 days. Binary system that exhibited a strong radio flare event in 1992 at 1,667 MHz.", pmRA: -7.3, pmDec: -5.1, specialFeature: "variable", systemID: "X_oph", isVariable: true, variableType: "Mira", minMag: 9.2, maxMag: 5.9, period: 328.85, specialText: "X Ophiuchi is a Mira-type variable star that varies dramatically in brightness from magnitude 5.9 to 9.2 over a period of approximately 329 days. It's also a binary system that remarkably produced a strong radio flare in 1992." },
+            { name: "σ Oph", bayer: "σ", flamsteed: "49", hd: "157999", hip: "85355", ra: "17h 26m 30.88s", dec: "+04° 08′ 25.2″", visMag: 4.34, absMag: -3.44, distance: 1173, spectralClass: "K3IIvar", notes: "", pmRA: -5.8, pmDec: -9.3 }
+        ];
+
+        // Compute RA/Dec in decimal degrees for plotting and calculate total proper motion
+        starsData.forEach(star => {
+            star.raDecimal = parseRA(star.ra);
+            star.decDecimal = parseDec(star.dec);
+            // Calculate total proper motion in mas/year
+            star.totalPM = Math.sqrt(star.pmRA * star.pmRA + star.pmDec * star.pmDec);
+            // Calculate proper motion direction in radians (for arrow orientation)
+            star.pmDirection = Math.atan2(star.pmDec, star.pmRA);
+            // Create a searchable string for filtering
+            star.searchText = [
+                star.name,
+                star.bayer,
+                star.flamsteed,
+                star.hd,
+                star.hip,
+                star.notes
+            ].filter(Boolean).join(' ').toLowerCase();
+        });
+
+        // Calculate spectral class color
+        function getSpectralColor(spectralClass) {
+            const type = spectralClass.charAt(0);
+            switch (type) {
+                case 'O': return '#9bb0ff'; // Blue
+                case 'B': return '#aabfff'; // Blue-white
+                case 'A': return '#cad7ff'; // White
+                case 'F': return '#fbf8ff'; // Yellow-white
+                case 'G': return '#fff4e8'; // Yellow
+                case 'K': return '#ffd2a1'; // Orange
+                case 'M': return '#ffcc6f'; // Red
+                default: return '#ffffff'; // White
+            }
+        }
+
+        // Initialize mini-map
+        function initializeMiniMap(xScale, yScale) {
+            const miniMapSvg = d3.select('#mini-map-svg');
+            const width = miniMapSvg.node().clientWidth;
+            const height = miniMapSvg.node().clientHeight;
+            
+            // Clear previous content
+            miniMapSvg.selectAll('*').remove();
+            
+            // Draw the outline of the constellation
+            const outline = [
+                [parseRA("17h 58m 30s"), parseDec("+12° 30′ 00″")],
+                [parseRA("17h 43m 28s"), parseDec("+04° 34′ 01″")],
+                [parseRA("17h 35m 00s"), parseDec("+09° 35′ 00″")],
+                [parseRA("17h 34m 56s"), parseDec("+12° 33′ 38″")],
+                [parseRA("17h 10m 22s"), parseDec("−15° 43′ 30″")],
+                [parseRA("16h 37m 09s"), parseDec("−10° 34′ 02″")],
+                [parseRA("16h 25m 35s"), parseDec("−23° 26′ 50″")],
+                [parseRA("16h 14m 20s"), parseDec("−03° 41′ 38″")],
+                [parseRA("16h 18m 19s"), parseDec("−04° 41′ 33″")],
+                [parseRA("16h 30m 54s"), parseDec("+01° 59′ 03″")],
+                [parseRA("17h 58m 30s"), parseDec("+12° 30′ 00″")]
+            ];
+            
+            // Define scales for mini-map
+            const raExtent = d3.extent(starsData, d => d.raDecimal);
+            const decExtent = d3.extent(starsData, d => d.decDecimal);
+            
+            // Pad extents to make sure all stars are visible
+            const raPadding = (raExtent[1] - raExtent[0]) * 0.1;
+            const decPadding = (decExtent[1] - decExtent[0]) * 0.1;
+            
+            const miniXScale = d3.scaleLinear()
+                .domain([raExtent[0] - raPadding, raExtent[1] + raPadding])
+                .range([width, 0]);
+                
+            const miniYScale = d3.scaleLinear()
+                .domain([decExtent[0] - decPadding, decExtent[1] + decPadding])
+                .range([height, 0]);
+                
+            // Draw outline
+            const lineGenerator = d3.line()
+                .x(d => miniXScale(d[0]))
+                .y(d => miniYScale(d[1]))
+                .curve(d3.curveCatmullRom.alpha(0.5));
+                
+            miniMapSvg.append("path")
+                .datum(outline)
+                .attr("fill", "none")
+                .attr("stroke", "#5D5CDE")
+                .attr("stroke-width", 1)
+                .attr("stroke-opacity", 0.6)
+                .attr("d", lineGenerator);
+                
+            // Draw all stars as small dots
+            miniMapSvg.selectAll('.mini-star')
+                .data(starsData)
+                .enter()
+                .append('circle')
+                .attr('class', 'mini-star')
+                .attr('cx', d => miniXScale(d.raDecimal))
+                .attr('cy', d => miniYScale(d.decDecimal))
+                .attr('r', d => Math.max(1, 3 - d.visMag / 2))
+                .attr('fill', d => getSpectralColor(d.spectralClass))
+                .attr('stroke', d => {
+                    if (d.specialFeature === 'multiple') return '#00FFFF';
+                    if (d.specialFeature === 'variable') return '#FF00FF';
+                    return d.specialFeature ? '#A94FCF' : 'none';
+                })
+                .attr('stroke-width', d => d.specialFeature ? 1 : 0);
+                
+            return { miniXScale, miniYScale };
+        }
+
+        // Draw variable star light curve
+        function drawLightCurve(starId) {
+            if (!variableStarData[starId]) return;
+            
+            const container = document.getElementById('light-curve-container');
+            container.innerHTML = ''; // Clear previous content
+            
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            const margin = { top: 20, right: 20, bottom: 30, left: 40 };
+            const chartWidth = width - margin.left - margin.right;
+            const chartHeight = height - margin.top - margin.bottom;
+            
+            // Generate light curve data
+            const lightCurveData = variableStarData[starId].generateLightCurve();
+            
+            // Create scales
+            const xScale = d3.scaleLinear()
+                .domain([0, d3.max(lightCurveData, d => d.day)])
+                .range([0, chartWidth]);
+                
+            const yScale = d3.scaleLinear()
+                .domain([d3.max(lightCurveData, d => d.magnitude) + 0.2, d3.min(lightCurveData, d => d.magnitude) - 0.2])
+                .range([chartHeight, 0]);
+                
+            // Create SVG element
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+                
+            // Add chart group
+            const chart = svg.append('g')
+                .attr('transform', `translate(${margin.left}, ${margin.top})`);
+                
+            // Add grid lines
+            chart.append('g')
+                .attr('class', 'chart-grid')
+                .selectAll('line')
+                .data(yScale.ticks(5))
+                .enter()
+                .append('line')
+                .attr('x1', 0)
+                .attr('x2', chartWidth)
+                .attr('y1', d => yScale(d))
+                .attr('y2', d => yScale(d));
+                
+            // Define the line
+            const line = d3.line()
+                .x(d => xScale(d.day))
+                .y(d => yScale(d.magnitude))
+                .curve(d3.curveBasis);
+                
+            // Define the area
+            const area = d3.area()
+                .x(d => xScale(d.day))
+                .y0(chartHeight)
+                .y1(d => yScale(d.magnitude))
+                .curve(d3.curveBasis);
+                
+            // Add the area path
+            chart.append('path')
+                .datum(lightCurveData)
+                .attr('class', 'light-curve-area')
+                .attr('d', area);
+                
+            // Add the line path
+            chart.append('path')
+                .datum(lightCurveData)
+                .attr('class', 'light-curve')
+                .attr('d', line);
+                
+            // Add period marker
+            const period = multipleSystems[starId].variable_data.period;
+            chart.append('line')
+                .attr('class', 'variable-period-marker')
+                .attr('x1', xScale(0))
+                .attr('x2', xScale(period))
+                .attr('y1', yScale(7.5)) // Position near bottom of chart
+                .attr('y2', yScale(7.5));
+                
+            chart.append('text')
+                .attr('x', xScale(period / 2))
+                .attr('y', yScale(7.5) - 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#FF00FF')
+                .attr('font-size', '10px')
+                .text(`Period: ${period} days`);
+                
+            // Add axes
+            chart.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0, ${chartHeight})`)
+                .call(d3.axisBottom(xScale).ticks(5).tickFormat(d => `${d} days`));
+                
+            chart.append('g')
+                .attr('class', 'axis')
+                .call(d3.axisLeft(yScale).ticks(5));
+                
+            // Add labels
+            chart.append('text')
+                .attr('x', chartWidth / 2)
+                .attr('y', -5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#FF00FF')
+                .text('Light Curve');
+                
+            chart.append('text')
+                .attr('transform', 'rotate(-90)')
+                .attr('x', -chartHeight / 2)
+                .attr('y', -30)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#888')
+                .text('Magnitude');
+                
+            chart.append('text')
+                .attr('x', chartWidth / 2)
+                .attr('y', chartHeight + 25)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#888')
+                .text('Time (days)');
+        }
+
+        // Initialize D3 visualization
+        function initializeStarMap() {
+            const svg = d3.select('#star-map');
+            const width = svg.node().clientWidth;
+            const height = svg.node().clientHeight;
+            
+            // Clear previous content
+            svg.selectAll('*').remove();
+            
+            // Create a group for zooming
+            const g = svg.append('g');
+            
+            // Add Ophiuchus outline (simplified)
+            const outline = [
+                [parseRA("17h 58m 30s"), parseDec("+12° 30′ 00″")],
+                [parseRA("17h 43m 28s"), parseDec("+04° 34′ 01″")],
+                [parseRA("17h 35m 00s"), parseDec("+09° 35′ 00″")],
+                [parseRA("17h 34m 56s"), parseDec("+12° 33′ 38″")],
+                [parseRA("17h 10m 22s"), parseDec("−15° 43′ 30″")],
+                [parseRA("16h 37m 09s"), parseDec("−10° 34′ 02″")],
+                [parseRA("16h 25m 35s"), parseDec("−23° 26′ 50″")],
+                [parseRA("16h 14m 20s"), parseDec("−03° 41′ 38″")],
+                [parseRA("16h 18m 19s"), parseDec("−04° 41′ 33″")],
+                [parseRA("16h 30m 54s"), parseDec("+01° 59′ 03″")],
+                [parseRA("17h 58m 30s"), parseDec("+12° 30′ 00″")]
+            ];
+            
+            // Define scales
+            const raExtent = d3.extent(starsData, d => d.raDecimal);
+            const decExtent = d3.extent(starsData, d => d.decDecimal);
+            
+            // Pad extents to make sure all stars are visible
+            const raPadding = (raExtent[1] - raExtent[0]) * 0.1;
+            const decPadding = (decExtent[1] - decExtent[0]) * 0.1;
+            
+            const xScale = d3.scaleLinear()
+                .domain([raExtent[0] - raPadding, raExtent[1] + raPadding])
+                .range([width, 0]); // Invert X-axis so RA increases eastward
+                
+            const yScale = d3.scaleLinear()
+                .domain([decExtent[0] - decPadding, decExtent[1] + decPadding])
+                .range([height, 0]);
+                
+            // Draw outline
+            const lineGenerator = d3.line()
+                .x(d => xScale(d[0]))
+                .y(d => yScale(d[1]))
+                .curve(d3.curveCatmullRom.alpha(0.5));
+                
+            g.append("path")
+                .datum(outline)
+                .attr("fill", "none")
+                .attr("stroke", "#5D5CDE")
+                .attr("stroke-width", 1.5)
+                .attr("stroke-opacity", 0.4)
+                .attr("d", lineGenerator);
+                
+            // Draw proper motion vectors (initially hidden)
+            g.selectAll('.motion-arrow')
+                .data(starsData)
+                .enter()
+                .append('line')
+                .attr('class', 'motion-arrow')
+                .attr('x1', d => xScale(d.raDecimal))
+                .attr('y1', d => yScale(d.decDecimal))
+                .attr('x2', d => xScale(d.raDecimal))
+                .attr('y2', d => yScale(d.decDecimal))
+                .attr('stroke', '#FF5733')
+                .attr('stroke-width', 1.5)
+                .attr('marker-end', 'url(#arrow)')
+                .attr('opacity', 0);
+                
+            // Add arrow marker for proper motion vectors
+            svg.append('defs').append('marker')
+                .attr('id', 'arrow')
+                .attr('viewBox', '0 -5 10 10')
+                .attr('refX', 8)
+                .attr('refY', 0)
+                .attr('markerWidth', 6)
+                .attr('markerHeight', 6)
+                .attr('orient', 'auto')
+                .append('path')
+                .attr('d', 'M0,-5L10,0L0,5')
+                .attr('fill', '#FF5733');
+            
+            // Add variable star pulsation effects (initially hidden)
+            g.selectAll('.variable-star-effect')
+                .data(starsData.filter(d => d.isVariable))
+                .enter()
+                .append('circle')
+                .attr('class', 'variable-star-effect constellation-feature')
+                .attr('cx', d => xScale(d.raDecimal))
+                .attr('cy', d => yScale(d.decDecimal))
+                .attr('r', 10)
+                .attr('fill', 'none')
+                .attr('stroke', '#FF00FF')
+                .attr('stroke-width', 1)
+                .attr('stroke-dasharray', '2,1')
+                .attr('opacity', 0);
+            
+            // Add constellation features group
+            const featureGroup = g.append('g').attr('class', 'feature-group');
+            
+            // Draw feature connections
+            constellationFeatures.forEach(feature => {
+                // Find the star objects for the feature
+                const featureStars = feature.stars.map(starName => 
+                    starsData.find(s => s.name.startsWith(starName))
+                ).filter(Boolean);
+                
+                if (featureStars.length >= 2) {
+                    // For features with multiple stars, draw lines between them
+                    for (let i = 0; i < featureStars.length - 1; i++) {
+                        featureGroup.append('line')
+                            .attr('class', 'constellation-feature')
+                            .attr('x1', xScale(featureStars[i].raDecimal))
+                            .attr('y1', yScale(featureStars[i].decDecimal))
+                            .attr('x2', xScale(featureStars[i+1].raDecimal))
+                            .attr('y2', yScale(featureStars[i+1].decDecimal))
+                            .attr('stroke', feature.type === 'multipleSystem' ? '#00FFFF' : 
+                                       feature.type === 'variableStar' ? '#FF00FF' : '#A94FCF')
+                            .attr('stroke-width', 2)
+                            .attr('stroke-dasharray', '5,3')
+                            .attr('opacity', 0)
+                            .attr('data-feature', feature.name)
+                            .on('mouseover', function() {
+                                showFeatureTooltip(feature, d3.pointer(event, document.body));
+                            })
+                            .on('mouseout', function() {
+                                hideFeatureTooltip();
+                            });
+                    }
+                    
+                    // Add a feature label at the midpoint of the first and last star
+                    const midX = (xScale(featureStars[0].raDecimal) + xScale(featureStars[featureStars.length-1].raDecimal)) / 2;
+                    const midY = (yScale(featureStars[0].decDecimal) + yScale(featureStars[featureStars.length-1].decDecimal)) / 2;
+                    
+                    featureGroup.append('text')
+                        .attr('class', 'feature-label constellation-feature')
+                        .attr('x', midX)
+                        .attr('y', midY - 12)
+                        .attr('text-anchor', 'middle')
+                        .attr('fill', feature.type === 'multipleSystem' ? '#00FFFF' : 
+                               feature.type === 'variableStar' ? '#FF00FF' : '#A94FCF')
+                        .attr('font-size', '11px')
+                        .text(feature.name)
+                        .attr('opacity', 0)
+                        .attr('data-feature', feature.name)
+                        .on('mouseover', function() {
+                            showFeatureTooltip(feature, d3.pointer(event, document.body));
+                        })
+                        .on('mouseout', function() {
+                            hideFeatureTooltip();
+                        });
+                } else if (featureStars.length === 1) {
+                    // For single star features, add a circle and label
+                    featureGroup.append('circle')
+                        .attr('class', 'constellation-feature')
+                        .attr('cx', xScale(featureStars[0].raDecimal))
+                        .attr('cy', yScale(featureStars[0].decDecimal))
+                        .attr('r', 12)
+                        .attr('fill', 'none')
+                        .attr('stroke', feature.type === 'variableStar' ? '#FF00FF' : '#A94FCF')
+                        .attr('stroke-width', 2)
+                        .attr('stroke-dasharray', '3,2')
+                        .attr('opacity', 0)
+                        .attr('data-feature', feature.name)
+                        .on('mouseover', function() {
+                            showFeatureTooltip(feature, d3.pointer(event, document.body));
+                        })
+                        .on('mouseout', function() {
+                            hideFeatureTooltip();
+                        });
+                    
+                    featureGroup.append('text')
+                        .attr('class', 'feature-label constellation-feature')
+                        .attr('x', xScale(featureStars[0].raDecimal))
+                        .attr('y', yScale(featureStars[0].decDecimal) - 15)
+                        .attr('text-anchor', 'middle')
+                        .attr('fill', feature.type === 'variableStar' ? '#FF00FF' : '#A94FCF')
+                        .attr('font-size', '11px')
+                        .text(feature.name)
+                        .attr('opacity', 0)
+                        .attr('data-feature', feature.name)
+                        .on('mouseover', function() {
+                            showFeatureTooltip(feature, d3.pointer(event, document.body));
+                        })
+                        .on('mouseout', function() {
+                            hideFeatureTooltip();
+                        });
+                }
+            });
+            
+            // Add variable stars pulsation animations
+            starsData.filter(d => d.isVariable).forEach(star => {
+                // Create the pulsation effect for variable stars
+                const pulsationGroup = g.append('g')
+                    .attr('class', 'variable-group constellation-feature')
+                    .attr('opacity', 0);
+                
+                // Add concentric circles for pulsation effect
+                const circles = 3;
+                for (let i = 0; i < circles; i++) {
+                    pulsationGroup.append('circle')
+                        .attr('class', 'variable-star-pulse constellation-feature')
+                        .attr('cx', xScale(star.raDecimal))
+                        .attr('cy', yScale(star.decDecimal))
+                        .attr('r', 3 + i * 3)
+                        .attr('fill', 'none')
+                        .attr('stroke', '#FF00FF')
+                        .attr('stroke-width', 1)
+                        .attr('stroke-opacity', 0.8 - i * 0.2)
+                        .attr('stroke-dasharray', '2,2')
+                        .style('animation-delay', `${i * 0.5}s`);
+                }
+            });
+            
+            // Add multiple star system details
+            Object.keys(multipleSystems).forEach(systemId => {
+                const system = multipleSystems[systemId];
+                
+                // Skip systems that aren't multiple star systems (like X Oph which is a variable)
+                if (!system.components || system.components.length <= 1) return;
+                
+                const stars = system.components.map(name => starsData.find(s => s.name.startsWith(name))).filter(Boolean);
+                
+                if (stars.length >= 2) {
+                    // Add angular separation markers between components
+                    for (let i = 0; i < stars.length - 1; i++) {
+                        const star1 = stars[i];
+                        const star2 = stars[i+1];
+                        
+                        // Determine which angular separation and position angle to use
+                        let sepKey, paKey;
+                        if (star1.component === 'A' && star2.component === 'B') {
+                            sepKey = 'AB';
+                            paKey = 'AB';
+                        } else if (star1.component === 'A' && star2.component === 'C') {
+                            sepKey = 'AC';
+                            paKey = 'AC';
+                        } else {
+                            continue; // Skip if we don't have data for this pair
+                        }
+                        
+                        const separation = system.angular_separations[sepKey];
+                        const positionAngle = system.position_angles[paKey];
+                        
+                        // Calculate arc coordinates
+                        const x1 = xScale(star1.raDecimal);
+                        const y1 = yScale(star1.decDecimal);
+                        const x2 = xScale(star2.raDecimal);
+                        const y2 = yScale(star2.decDecimal);
+                        
+                        // Calculate midpoint along the line
+                        const midX = (x1 + x2) / 2;
+                        const midY = (y1 + y2) / 2;
+                        
+                        // Add label
+                        featureGroup.append('text')
+                            .attr('class', 'arc-label constellation-feature')
+                            .attr('x', midX)
+                            .attr('y', midY - 8)
+                            .attr('text-anchor', 'middle')
+                            .text(`${separation}″`)
+                            .attr('opacity', 0);
+                        
+                        // Add position angle label if we have one
+                        if (positionAngle !== undefined) {
+                            featureGroup.append('text')
+                                .attr('class', 'arc-label constellation-feature')
+                                .attr('x', midX)
+                                .attr('y', midY + 8)
+                                .attr('text-anchor', 'middle')
+                                .text(`PA: ${positionAngle}°`)
+                                .attr('opacity', 0);
+                        }
+                    }
+                }
+            });
+                
+            // Future positions (initially hidden)
+            g.selectAll('.future-position')
+                .data(starsData)
+                .enter()
+                .append('circle')
+                .attr('class', 'future-position')
+                .attr('cx', d => xScale(d.raDecimal))
+                .attr('cy', d => yScale(d.decDecimal))
+                .attr('r', 2)
+                .attr('fill', '#FF5733')
+                .attr('opacity', 0);
+                
+            // Draw stars
+            g.selectAll('.star')
+                .data(starsData)
+                .enter()
+                .append('circle')
+                .attr('class', d => {
+                    if (d.specialFeature === 'multiple') return 'star binary-star';
+                    if (d.specialFeature === 'variable') return 'star variable-star';
+                    return d.specialFeature ? 'star special-star' : 'star';
+                })
+                .attr('cx', d => xScale(d.raDecimal))
+                .attr('cy', d => yScale(d.decDecimal))
+                .attr('r', d => Math.max(2, 7 - d.visMag))
+                .attr('fill', d => getSpectralColor(d.spectralClass))
+                .attr('stroke', d => {
+                    if (d.specialFeature === 'multiple') return '#00FFFF';
+                    if (d.specialFeature === 'variable') return '#FF00FF';
+                    return d.specialFeature ? '#A94FCF' : '#5D5CDE';
+                })
+                .attr('stroke-width', d => d.specialFeature ? 1.5 : 0.5)
+                .attr('data-id', (d, i) => i)
+                .on('click', (event, d) => {
+                    showStarDetails(d);
+                    // Focus on selected star
+                    focusOnStar(d);
+                });
+                
+            // Add labels for bright stars and special stars
+            g.selectAll('.star-label')
+                .data(starsData.filter(d => d.visMag < 4.5 || d.specialFeature))
+                .enter()
+                .append('text')
+                .attr('class', 'star-label')
+                .attr('x', d => xScale(d.raDecimal) + 8)
+                .attr('y', d => yScale(d.decDecimal) + 4)
+                .attr('fill', d => {
+                    if (d.specialFeature === 'multiple') return '#00FFFF';
+                    if (d.specialFeature === 'variable') return '#FF00FF';
+                    return d.specialFeature ? '#FFC0CB' : 'white';
+                })
+                .attr('font-size', '10px')
+                .text(d => d.name.split(' ')[0]);
+                
+            // Add constellation title
+            g.append('text')
+                .attr('x', width / 2)
+                .attr('y', 30)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#5D5CDE')
+                .attr('font-size', '16px')
+                .attr('font-weight', 'bold')
+                .text('Ophiuchus Constellation');
+                
+            // Add grid lines for RA and Dec
+            const raGridValues = d3.range(
+                Math.floor(raExtent[0]), 
+                Math.ceil(raExtent[1]), 
+                1
+            );
+            
+            const decGridValues = d3.range(
+                Math.floor(decExtent[0]), 
+                Math.ceil(decExtent[1]), 
+                5
+            );
+            
+            // RA grid lines
+            g.selectAll('.ra-grid')
+                .data(raGridValues)
+                .enter()
+                .append('line')
+                .attr('class', 'ra-grid')
+                .attr('x1', d => xScale(d))
+                .attr('y1', 0)
+                .attr('x2', d => xScale(d))
+                .attr('y2', height)
+                .attr('stroke', 'rgba(93, 92, 222, 0.2)')
+                .attr('stroke-dasharray', '2,2');
+                
+            // Dec grid lines
+            g.selectAll('.dec-grid')
+                .data(decGridValues)
+                .enter()
+                .append('line')
+                .attr('class', 'dec-grid')
+                .attr('x1', 0)
+                .attr('y1', d => yScale(d))
+                .attr('x2', width)
+                .attr('y2', d => yScale(d))
+                .attr('stroke', 'rgba(93, 92, 222, 0.2)')
+                .attr('stroke-dasharray', '2,2');
+                
+            // RA grid labels
+            g.selectAll('.ra-label')
+                .data(raGridValues)
+                .enter()
+                .append('text')
+                .attr('class', 'ra-label')
+                .attr('x', d => xScale(d))
+                .attr('y', height - 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', 'rgba(93, 92, 222, 0.7)')
+                .attr('font-size', '8px')
+                .text(d => `${Math.floor(d / 15)}h`);
+                
+            // Dec grid labels
+            g.selectAll('.dec-label')
+                .data(decGridValues)
+                .enter()
+                .append('text')
+                .attr('class', 'dec-label')
+                .attr('x', 5)
+                .attr('y', d => yScale(d))
+                .attr('text-anchor', 'start')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', 'rgba(93, 92, 222, 0.7)')
+                .attr('font-size', '8px')
+                .text(d => `${d}°`);
+            
+            // Initialize mini-map
+            const miniMapScales = initializeMiniMap(xScale, yScale);
+                
+            // Add zoom functionality
+            const zoom = d3.zoom()
+                .scaleExtent([0.5, 25]) // Allow greater zoom level
+                .on('zoom', (event) => {
+                    g.attr('transform', event.transform);
+                    
+                    // Update zoom level display
+                    const zoomPercent = Math.round(event.transform.k * 100);
+                    document.getElementById('zoom-level').textContent = `${zoomPercent}%`;
+                    
+                    // Adjust star size based on zoom level
+                    g.selectAll('.star')
+                        .attr('r', d => (Math.max(2, 7 - d.visMag)) / Math.sqrt(event.transform.k));
+                    
+                    // Adjust star labels size and visibility based on zoom level
+                    g.selectAll('.star-label')
+                        .attr('font-size', 10 / Math.sqrt(event.transform.k) + 'px')
+                        .style('display', event.transform.k > 0.8 ? 'block' : 'none');
+                    
+                    // Adjust feature labels size based on zoom level
+                    g.selectAll('.feature-label')
+                        .attr('font-size', 11 / Math.sqrt(event.transform.k) + 'px');
+                    
+                    // Adjust arc labels size based on zoom level
+                    g.selectAll('.arc-label')
+                        .attr('font-size', 10 / Math.sqrt(event.transform.k) + 'px');
+                    
+                    // Adjust proper motion arrow width based on zoom level
+                    if (document.getElementById('toggle-proper-motion').classList.contains('bg-green-500')) {
+                        g.selectAll('.motion-arrow')
+                            .attr('stroke-width', 1.5 / Math.sqrt(event.transform.k));
+                    }
+                    
+                    // Update view-box in mini-map
+                    updateMiniMapViewport(event.transform, xScale, yScale, miniMapScales);
+                });
+                
+            svg.call(zoom);
+            
+            // Zoom controls
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                svg.transition().duration(300).call(zoom.scaleBy, 2);
+            });
+            
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                svg.transition().duration(300).call(zoom.scaleBy, 0.5);
+            });
+            
+            document.getElementById('zoom-fit').addEventListener('click', () => {
+                svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+            });
+            
+            // Make mini-map clickable to navigate
+            const miniMap = d3.select('#mini-map-svg');
+            miniMap.on('click', (event) => {
+                const [x, y] = d3.pointer(event);
+                const raValue = miniMapScales.miniXScale.invert(x);
+                const decValue = miniMapScales.miniYScale.invert(y);
+                
+                // Calculate the center point translation
+                const centerX = xScale(raValue);
+                const centerY = yScale(decValue);
+                
+                // Get the current scale
+                const currentTransform = d3.zoomTransform(svg.node());
+                const k = currentTransform.k;
+                
+                // Calculate the new transform
+                const newTransform = d3.zoomIdentity
+                    .translate(width/2 - centerX * k, height/2 - centerY * k)
+                    .scale(k);
+                
+                // Apply the new transform with transition
+                svg.transition().duration(500).call(zoom.transform, newTransform);
+                
+                // Show focus indicator at clicked position
+                showFocusIndicator(x, y, miniMapScales, raValue, decValue);
+            });
+            
+            // Add visual feedback for clicks on mini-map
+            function showFocusIndicator(x, y, miniMapScales, raValue, decValue) {
+                // Remove any existing indicators
+                d3.selectAll('.zoom-indicator').remove();
+                
+                // Add the indicator at the clicked position in mini-map
+                const miniMapDiv = document.getElementById('mini-map');
+                const indicator = document.createElement('div');
+                indicator.classList.add('zoom-indicator');
+                indicator.style.left = `${x}px`;
+                indicator.style.top = `${y}px`;
+                indicator.style.width = '12px';
+                indicator.style.height = '12px';
+                miniMapDiv.appendChild(indicator);
+                
+                // Animate the indicator
+                setTimeout(() => {
+                    indicator.style.width = '20px';
+                    indicator.style.height = '20px';
+                    indicator.style.opacity = '0';
+                }, 10);
+                
+                // Remove the indicator after animation
+                setTimeout(() => {
+                    indicator.remove();
+                }, 600);
+            }
+            
+            // Initialize with identity transform
+            svg.call(zoom.transform, d3.zoomIdentity);
+            
+            // Store the scales and zoom for future use
+            window.starMapScales = { xScale, yScale };
+            window.starMapZoom = zoom;
+        }
+
+        // Function to display tooltip for constellation features
+        function showFeatureTooltip(feature, position) {
+            const tooltip = document.getElementById('feature-tooltip');
+            tooltip.innerHTML = `<strong>${feature.name}</strong><br>${feature.description}`;
+            tooltip.style.left = `${position[0]}px`;
+            tooltip.style.top = `${position[1] - 10}px`;
+            tooltip.classList.remove('hidden');
+        }
+        
+        function hideFeatureTooltip() {
+            document.getElementById('feature-tooltip').classList.add('hidden');
+        }
+        
+        // Update mini-map viewport rectangle
+        function updateMiniMapViewport(transform, xScale, yScale, miniMapScales) {
+            const miniMap = document.getElementById('mini-map-svg');
+            const viewBox = document.getElementById('view-box');
+            const mainMapWidth = document.getElementById('star-map').clientWidth;
+            const mainMapHeight = document.getElementById('star-map').clientHeight;
+            const miniMapWidth = miniMap.clientWidth;
+            const miniMapHeight = miniMap.clientHeight;
+            
+            // Calculate the visible area in data coordinates
+            const topLeft = transform.invert([0, 0]);
+            const bottomRight = transform.invert([mainMapWidth, mainMapHeight]);
+            
+            // Convert to mini-map coordinates
+            const miniTopLeft = [
+                miniMapScales.miniXScale(xScale.invert(topLeft[0])), 
+                miniMapScales.miniYScale(yScale.invert(topLeft[1]))
+            ];
+            const miniBottomRight = [
+                miniMapScales.miniXScale(xScale.invert(bottomRight[0])), 
+                miniMapScales.miniYScale(yScale.invert(bottomRight[1]))
+            ];
+            
+            // Update view-box position and size
+            const boxX = Math.min(miniTopLeft[0], miniBottomRight[0]);
+            const boxY = Math.min(miniTopLeft[1], miniBottomRight[1]);
+            const boxWidth = Math.abs(miniBottomRight[0] - miniTopLeft[0]);
+            const boxHeight = Math.abs(miniBottomRight[1] - miniTopLeft[1]);
+            
+            // Apply styles
+            viewBox.style.left = `${boxX}px`;
+            viewBox.style.top = `${boxY}px`;
+            viewBox.style.width = `${boxWidth}px`;
+            viewBox.style.height = `${boxHeight}px`;
+        }
+        
+        // Focus on star by zooming to it
+        function focusOnStar(star) {
+            if (!window.starMapScales || !window.starMapZoom) return;
+            
+            const svg = d3.select('#star-map');
+            const { xScale, yScale } = window.starMapScales;
+            const zoom = window.starMapZoom;
+            
+            // Calculate the position of the star in pixel coordinates
+            const x = xScale(star.raDecimal);
+            const y = yScale(star.decDecimal);
+            
+            // Get main map dimensions
+            const width = svg.node().clientWidth;
+            const height = svg.node().clientHeight;
+            
+            // Define the zoom level based on star type
+            let zoomLevel;
+            
+            if (star.specialFeature === 'multiple') {
+                // Higher zoom for multiple star systems
+                zoomLevel = 15;
+            } else if (star.specialFeature === 'variable') {
+                // Medium zoom for variable stars
+                zoomLevel = 8;
+            } else {
+                // Normal zoom level based on magnitude
+                zoomLevel = Math.min(10, 5 + (6 - star.visMag));
+            }
+            
+            // Create a transform that centers on the star with desired zoom
+            const transform = d3.zoomIdentity
+                .translate(width/2 - x * zoomLevel, height/2 - y * zoomLevel)
+                .scale(zoomLevel);
+            
+            // Apply the transform with a smooth transition
+            svg.transition()
+                .duration(750)
+                .call(zoom.transform, transform);
+        }
+
+        // Update star positions and proper motion vectors based on time
+        function updateStarPositions(timeYears) {
+            if (!window.starMapScales) return;
+            
+            const { xScale, yScale } = window.starMapScales;
+            const svg = d3.select('#star-map');
+            const g = svg.select('g');
+            
+            // Scale factor for proper motion visualization
+            // 1 mas/year = 1/3600000 degree/year
+            const scale = timeYears / 3600000;
+            
+            // Update star positions
+            g.selectAll('.star')
+                .attr('cx', d => xScale(d.raDecimal + d.pmRA * scale / Math.cos(d.decDecimal * Math.PI / 180)))
+                .attr('cy', d => yScale(d.decDecimal + d.pmDec * scale));
+                
+            // Update star labels
+            g.selectAll('.star-label')
+                .attr('x', d => xScale(d.raDecimal + d.pmRA * scale / Math.cos(d.decDecimal * Math.PI / 180)) + 8)
+                .attr('y', d => yScale(d.decDecimal + d.pmDec * scale) + 4);
+                
+            // Update proper motion arrows
+            g.selectAll('.motion-arrow')
+                .attr('x1', d => xScale(d.raDecimal + d.pmRA * scale / Math.cos(d.decDecimal * Math.PI / 180)))
+                .attr('y1', d => yScale(d.decDecimal + d.pmDec * scale))
+                .attr('x2', d => {
+                    const pmLength = Math.min(d.totalPM, 500) / 50; // Scale down very large values
+                    const endRA = d.raDecimal + d.pmRA * scale / Math.cos(d.decDecimal * Math.PI / 180) + 
+                                 pmLength * Math.cos(d.pmDirection) / Math.cos(d.decDecimal * Math.PI / 180);
+                    return xScale(endRA);
+                })
+                .attr('y2', d => {
+                    const pmLength = Math.min(d.totalPM, 500) / 50; // Scale down very large values
+                    const endDec = d.decDecimal + d.pmDec * scale + pmLength * Math.sin(d.pmDirection);
+                    return yScale(endDec);
+                });
+                
+            // Update variable star pulse effects
+            g.selectAll('.variable-star-pulse')
+                .each(function() {
+                    const pulseElement = d3.select(this);
+                    const parentData = d3.select(this.parentNode).datum();
+                    if (parentData) {
+                        const newX = xScale(parentData.raDecimal + parentData.pmRA * scale / Math.cos(parentData.decDecimal * Math.PI / 180));
+                        const newY = yScale(parentData.decDecimal + parentData.pmDec * scale);
+                        pulseElement.attr('cx', newX).attr('cy', newY);
+                    }
+                });
+                
+            // Update constellation feature connections based on proper motion
+            // First, find all the constellation features that have connections
+            constellationFeatures.forEach(feature => {
+                if (feature.stars.length >= 2) {
+                    // Find the star objects for this feature
+                    const featureStars = feature.stars.map(starName => 
+                        starsData.find(s => s.name.startsWith(starName))
+                    ).filter(Boolean);
+                    
+                    // Update the lines between stars
+                    for (let i = 0; i < featureStars.length - 1; i++) {
+                        const star1 = featureStars[i];
+                        const star2 = featureStars[i+1];
+                        
+                        const ra1 = star1.raDecimal + star1.pmRA * scale / Math.cos(star1.decDecimal * Math.PI / 180);
+                        const dec1 = star1.decDecimal + star1.pmDec * scale;
+                        const ra2 = star2.raDecimal + star2.pmRA * scale / Math.cos(star2.decDecimal * Math.PI / 180);
+                        const dec2 = star2.decDecimal + star2.pmDec * scale;
+                        
+                        // Find the line for this feature
+                        g.selectAll('.constellation-feature')
+                            .filter(function() {
+                                return d3.select(this).attr('data-feature') === feature.name &&
+                                      this.tagName.toLowerCase() === 'line';
+                            })
+                            .attr('x1', xScale(ra1))
+                            .attr('y1', yScale(dec1))
+                            .attr('x2', xScale(ra2))
+                            .attr('y2', yScale(dec2));
+                    }
+                    
+                    // Update the label position
+                    const midRa = (featureStars[0].raDecimal + featureStars[0].pmRA * scale / Math.cos(featureStars[0].decDecimal * Math.PI / 180) + 
+                                  featureStars[featureStars.length-1].raDecimal + featureStars[featureStars.length-1].pmRA * scale / Math.cos(featureStars[featureStars.length-1].decDecimal * Math.PI / 180)) / 2;
+                    const midDec = (featureStars[0].decDecimal + featureStars[0].pmDec * scale + 
+                                   featureStars[featureStars.length-1].decDecimal + featureStars[featureStars.length-1].pmDec * scale) / 2;
+                    
+                    g.selectAll('.feature-label')
+                        .filter(function() {
+                            return d3.select(this).attr('data-feature') === feature.name;
+                        })
+                        .attr('x', xScale(midRa))
+                        .attr('y', yScale(midDec) - 12);
+                } else if (feature.stars.length === 1) {
+                    // Update the position for single-star features
+                    const star = starsData.find(s => s.name.startsWith(feature.stars[0]));
+                    if (star) {
+                        const ra = star.raDecimal + star.pmRA * scale / Math.cos(star.decDecimal * Math.PI / 180);
+                        const dec = star.decDecimal + star.pmDec * scale;
+                        
+                        g.selectAll('.constellation-feature')
+                            .filter(function() {
+                                return d3.select(this).attr('data-feature') === feature.name && 
+                                      this.tagName.toLowerCase() === 'circle';
+                            })
+                            .attr('cx', xScale(ra))
+                            .attr('cy', yScale(dec));
+                        
+                        g.selectAll('.feature-label')
+                            .filter(function() {
+                                return d3.select(this).attr('data-feature') === feature.name;
+                            })
+                            .attr('x', xScale(ra))
+                            .attr('y', yScale(dec) - 15);
+                    }
+                }
+            });
+            
+            // Update arc labels for multiple star systems
+            g.selectAll('.arc-label').each(function() {
+                const label = d3.select(this);
+                const text = label.text();
+                
+                // Find which multiple system this belongs to
+                for (const systemId in multipleSystems) {
+                    const system = multipleSystems[systemId];
+                    const stars = system.components.map(name => starsData.find(s => s.name.startsWith(name))).filter(Boolean);
+                    
+                    for (let i = 0; i < stars.length - 1; i++) {
+                        const star1 = stars[i];
+                        const star2 = stars[i+1];
+                        
+                        // Calculate current positions with proper motion
+                        const ra1 = star1.raDecimal + star1.pmRA * scale / Math.cos(star1.decDecimal * Math.PI / 180);
+                        const dec1 = star1.decDecimal + star1.pmDec * scale;
+                        const ra2 = star2.raDecimal + star2.pmRA * scale / Math.cos(star2.decDecimal * Math.PI / 180);
+                        const dec2 = star2.decDecimal + star2.pmDec * scale;
+                        
+                        // Calculate midpoint
+                        const midX = (xScale(ra1) + xScale(ra2)) / 2;
+                        const midY = (yScale(dec1) + yScale(dec2)) / 2;
+                        
+                        // If this is a separation label
+                        if (text.includes('″')) {
+                            // This is a separation label
+                            if (i === 0 && label.attr('y') < midY) {
+                                label.attr('x', midX)
+                                    .attr('y', midY - 8);
+                            }
+                        }
+                        // If this is a position angle label
+                        else if (text.includes('PA')) {
+                            // This is a position angle label
+                            if (i === 0 && label.attr('y') > midY) {
+                                label.attr('x', midX)
+                                    .attr('y', midY + 8);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Table functionality
+        function updateStarTable(stars) {
+            const tableBody = document.getElementById('star-table-body');
+            tableBody.innerHTML = '';
+            
+            stars.forEach(star => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer';
+                row.addEventListener('click', () => showStarDetails(star));
+                
+                // Apply special styling for stars with special features
+                if (star.specialFeature === 'multiple') {
+                    row.className += ' bg-cyan-50 dark:bg-cyan-900 bg-opacity-30';
+                } else if (star.specialFeature === 'variable') {
+                    row.className += ' bg-fuchsia-50 dark:bg-fuchsia-900 bg-opacity-30';
+                } else if (star.specialFeature) {
+                    row.className += ' bg-purple-50 dark:bg-purple-900 bg-opacity-30';
+                }
+                
+                // Show magnitude range for variable stars
+                let magnitudeDisplay = star.visMag.toFixed(2);
+                if (star.isVariable) {
+                    magnitudeDisplay = `${star.maxMag.toFixed(2)} - ${star.minMag.toFixed(2)}`;
+                }
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">${star.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">${magnitudeDisplay}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">${star.distance}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">
+                        <span class="inline-block w-3 h-3 rounded-full mr-2" style="background-color: ${getSpectralColor(star.spectralClass)}"></span>
+                        ${star.spectralClass}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">${star.totalPM.toFixed(1)} mas/yr</td>
+                    <td class="px-6 py-4 text-sm">${star.notes}</td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Filter and sort the stars
+        function filterAndSortStars() {
+            const magnitudeFilter = parseFloat(document.getElementById('magnitude-filter').value);
+            const searchText = document.getElementById('search').value.toLowerCase();
+            const sortBy = document.getElementById('sort-by').value;
+            
+            let filteredStars = starsData.filter(star => {
+                // For variable stars, filter based on maximum brightness (minimum magnitude)
+                const effectiveMagnitude = star.isVariable ? star.maxMag : star.visMag;
+                return effectiveMagnitude <= magnitudeFilter && 
+                      (searchText === '' || star.searchText.includes(searchText));
+            });
+            
+            // Sort stars
+            switch (sortBy) {
+                case 'brightness':
+                    filteredStars.sort((a, b) => {
+                        // For variable stars, sort by maximum brightness (minimum magnitude)
+                        const aMag = a.isVariable ? a.maxMag : a.visMag;
+                        const bMag = b.isVariable ? b.maxMag : b.visMag;
+                        return aMag - bMag;
+                    });
+                    break;
+                case 'name':
+                    filteredStars.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+                case 'distance':
+                    filteredStars.sort((a, b) => a.distance - b.distance);
+                    break;
+                case 'spectral':
+                    filteredStars.sort((a, b) => a.spectralClass.localeCompare(b.spectralClass));
+                    break;
+                case 'properMotion':
+                    filteredStars.sort((a, b) => b.totalPM - a.totalPM); // Higher values first
+                    break;
+            }
+            
+            return filteredStars;
+        }
+
+        // Update views based on filters
+        function updateViews() {
+            const filteredStars = filterAndSortStars();
+            const displayMode = document.getElementById('display-mode').value;
+            
+            // Update table
+            updateStarTable(filteredStars);
+            
+            // Show/hide views
+            document.getElementById('map-view').style.display = displayMode === 'map' ? 'block' : 'none';
+            document.getElementById('table-view').style.display = displayMode === 'table' ? 'block' : 'none';
+            
+            // If map view is active, update star visibility
+            if (displayMode === 'map') {
+                const svg = d3.select('#star-map');
+                const stars = svg.selectAll('.star');
+                
+                stars.each(function(d) {
+                    const starElement = d3.select(this);
+                    const isVisible = filteredStars.some(fs => fs.hip === d.hip);
+                    starElement.style('opacity', isVisible ? 1 : 0.2);
+                });
+                
+                // Update star labels visibility
+                svg.selectAll('.star-label').each(function(d) {
+                    const labelElement = d3.select(this);
+                    const isVisible = filteredStars.some(fs => fs.name === d.name);
+                    labelElement.style('opacity', isVisible ? 1 : 0.2);
+                });
+                
+                // Update arrow visibility too
+                svg.selectAll('.motion-arrow').each(function(d) {
+                    const arrowElement = d3.select(this);
+                    const isVisible = filteredStars.some(fs => fs.hip === d.hip);
+                    if (document.getElementById('toggle-proper-motion').classList.contains('bg-green-500')) {
+                        arrowElement.style('opacity', isVisible ? 0.8 : 0);
+                    }
+                });
+                
+                // Update constellation features visibility
+                svg.selectAll('.constellation-feature').each(function() {
+                    const featureElement = d3.select(this);
+                    const showFeatures = document.getElementById('toggle-features').classList.contains('bg-green-500');
+                    featureElement.style('opacity', showFeatures ? 0.8 : 0);
+                });
+                
+                // Update variable stars pulse animations
+                svg.selectAll('.variable-group').each(function() {
+                    const groupElement = d3.select(this);
+                    const showVariableEffects = document.getElementById('toggle-variable').classList.contains('bg-green-500');
+                    groupElement.style('opacity', showVariableEffects ? 1 : 0);
+                });
+            }
+        }
+
+        // Show star details
+        function showStarDetails(star) {
+            const detailsPanel = document.getElementById('star-details');
+            detailsPanel.classList.remove('hidden');
+            
+            // Fill in details
+            document.getElementById('detail-title').textContent = star.name;
+            
+            // For variable stars, show magnitude range
+            if (star.isVariable) {
+                document.getElementById('detail-magnitude').textContent = `${star.maxMag.toFixed(2)} - ${star.minMag.toFixed(2)}`;
+            } else {
+                document.getElementById('detail-magnitude').textContent = star.visMag.toFixed(2);
+            }
+            
+            document.getElementById('detail-abs-magnitude').textContent = star.absMag.toFixed(2);
+            document.getElementById('detail-distance').textContent = `${star.distance} light years`;
+            document.getElementById('detail-spectral').textContent = star.spectralClass;
+            document.getElementById('detail-bayer').textContent = star.bayer || 'N/A';
+            document.getElementById('detail-flamsteed').textContent = star.flamsteed || 'N/A';
+            document.getElementById('detail-hd').textContent = star.hd || 'N/A';
+            document.getElementById('detail-hip').textContent = star.hip || 'N/A';
+            document.getElementById('detail-ra').textContent = star.ra;
+            document.getElementById('detail-dec').textContent = star.dec;
+            document.getElementById('detail-pmra').textContent = `${star.pmRA.toFixed(1)} mas/yr`;
+            document.getElementById('detail-pmdec').textContent = `${star.pmDec.toFixed(1)} mas/yr`;
+            document.getElementById('detail-pm-total').textContent = `${star.totalPM.toFixed(1)} mas/yr`;
+            
+            // Calculate movement in 10,000 years
+            const arcsecondsIn10kYears = (star.totalPM / 1000) * 10000; // convert mas to arcseconds
+            const degreeMovement = (arcsecondsIn10kYears / 3600).toFixed(2); // convert to degrees
+            const arcminutesMovement = (arcsecondsIn10kYears / 60).toFixed(1); // convert to arcminutes
+            
+            document.getElementById('detail-pm-10000').textContent = 
+                `${degreeMovement}° (${arcminutesMovement}′)`;
+            
+            document.getElementById('detail-notes').textContent = star.notes || 'No additional information available.';
+            
+            // Add tags
+            const tagsContainer = document.getElementById('detail-tags');
+            tagsContainer.innerHTML = '';
+            
+            // Extract notable characteristics as tags
+            const spectralType = star.spectralClass.charAt(0);
+            const tags = [
+                { text: `Spectral Type: ${spectralType}`, 
+                  color: `bg-${spectralType === 'O' || spectralType === 'B' ? 'blue' : 
+                          spectralType === 'A' || spectralType === 'F' ? 'yellow' : 
+                          spectralType === 'G' ? 'amber' : 
+                          spectralType === 'K' ? 'orange' : 'red'}-100 dark:bg-${
+                          spectralType === 'O' || spectralType === 'B' ? 'blue' : 
+                          spectralType === 'A' || spectralType === 'F' ? 'yellow' : 
+                          spectralType === 'G' ? 'amber' : 
+                          spectralType === 'K' ? 'orange' : 'red'}-900`
+                }
+            ];
+            
+            // Check for special characteristics
+            if (star.visMag < 3.0) tags.push({ text: "Bright Star", color: "bg-yellow-100 dark:bg-yellow-900" });
+            if (star.notes && star.notes.includes("variable") || star.isVariable) tags.push({ text: "Variable Star", color: "bg-fuchsia-100 dark:bg-fuchsia-900" });
+            if (star.notes && star.notes.includes("planet")) tags.push({ text: "Has Planet(s)", color: "bg-green-100 dark:bg-green-900" });
+            if (star.distance < 50) tags.push({ text: "Nearby Star", color: "bg-teal-100 dark:bg-teal-900" });
+            if (star.totalPM > 100) tags.push({ text: "High Proper Motion", color: "bg-orange-100 dark:bg-orange-900" });
+            if (star.specialFeature && star.specialFeature !== 'multiple' && star.specialFeature !== 'variable') tags.push({ text: "Constellation Feature", color: "bg-purple-100 dark:bg-purple-900" });
+            if (star.specialFeature === 'multiple') tags.push({ text: "Multiple Star System", color: "bg-cyan-100 dark:bg-cyan-900" });
+            if (star.systemID === 'X_oph') tags.push({ text: "Radio Flare Event", color: "bg-indigo-100 dark:bg-indigo-900" });
+            
+            tags.forEach(tag => {
+                const tagElement = document.createElement('span');
+                tagElement.className = `inline-block ${tag.color} rounded-full px-3 py-1 text-sm font-semibold mr-2 mb-2`;
+                tagElement.textContent = tag.text;
+                tagsContainer.appendChild(tagElement);
+            });
+            
+            // Handle special feature display
+            const specialFeatureSection = document.getElementById('special-feature');
+            if (star.specialFeature && star.specialFeature !== 'multiple' && star.specialFeature !== 'variable' && star.specialText) {
+                specialFeatureSection.classList.remove('hidden');
+                document.getElementById('special-feature-text').textContent = star.specialText;
+            } else {
+                specialFeatureSection.classList.add('hidden');
+            }
+            
+            // Handle binary/multiple star system display
+            const binarySystemSection = document.getElementById('binary-system');
+            const binaryCompanions = document.getElementById('binary-companions');
+            
+            if (star.specialFeature === 'multiple' && star.systemID) {
+                binarySystemSection.classList.remove('hidden');
+                
+                // Get system information
+                const systemInfo = multipleSystems[star.systemID];
+                document.getElementById('binary-system-text').textContent = systemInfo.description;
+                
+                // Clear previous companions
+                binaryCompanions.innerHTML = '';
+                
+                // Find companion stars
+                const companions = starsData.filter(s => 
+                    s.systemID === star.systemID && 
+                    s.component !== star.component
+                );
+                
+                if (companions.length > 0) {
+                    binaryCompanions.innerHTML = `<h4 class="text-cyan-800 dark:text-cyan-100 font-medium mb-2">Companion Stars</h4>`;
+                    
+                    companions.forEach(companion => {
+                        const companionDiv = document.createElement('div');
+                        companionDiv.className = 'p-2 mb-2 bg-cyan-50 dark:bg-cyan-900 bg-opacity-50 rounded';
+                        
+                        // Determine separation and position angle
+                        let sepText = '', paText = '';
+                        if (star.component === 'A' && companion.component === 'B') {
+                            sepText = `${systemInfo.angular_separations.AB} arcseconds`;
+                            paText = `${systemInfo.position_angles.AB}°`;
+                        } else if (star.component === 'A' && companion.component === 'C') {
+                            sepText = `${systemInfo.angular_separations.AC} arcseconds`;
+                            paText = `${systemInfo.position_angles.AC}°`;
+                        } else if (star.component === 'B' && companion.component === 'A') {
+                            sepText = `${systemInfo.angular_separations.AB} arcseconds`;
+                            paText = `${systemInfo.position_angles.AB + 180}°`; // Opposite direction
+                        } else if (star.component === 'C' && companion.component === 'A') {
+                            sepText = `${systemInfo.angular_separations.AC} arcseconds`;
+                            paText = `${systemInfo.position_angles.AC + 180}°`; // Opposite direction
+                        }
+                        
+                        companionDiv.innerHTML = `
+                            <div class="font-semibold">${companion.name}</div>
+                            <div class="text-sm">
+                                <span class="text-cyan-700 dark:text-cyan-300">Magnitude:</span> ${companion.visMag.toFixed(2)},
+                                <span class="text-cyan-700 dark:text-cyan-300">Spectral Type:</span> ${companion.spectralClass}
+                            </div>
+                            <div class="text-sm mt-1">
+                                <span class="text-cyan-700 dark:text-cyan-300">Separation:</span> ${sepText},
+                                <span class="text-cyan-700 dark:text-cyan-300">Position Angle:</span> ${paText}
+                            </div>
+                        `;
+                        
+                        // Add a button to navigate to the companion
+                        const navButton = document.createElement('button');
+                        navButton.className = 'mt-1 px-2 py-1 bg-cyan-200 dark:bg-cyan-700 text-cyan-800 dark:text-cyan-100 rounded text-xs';
+                        navButton.textContent = `View ${companion.name.split(' ')[0]}`;
+                        navButton.addEventListener('click', () => {
+                            // Close this detail panel
+                            document.getElementById('close-details').click();
+                            // Show the companion's details
+                            showStarDetails(companion);
+                            // Focus on the companion
+                            focusOnStar(companion);
+                        });
+                        
+                        companionDiv.appendChild(navButton);
+                        binaryCompanions.appendChild(companionDiv);
+                    });
+                }
+                
+            } else {
+                binarySystemSection.classList.add('hidden');
+            }
+            
+            // Handle variable star display
+            const variableStarSection = document.getElementById('variable-star');
+            
+            if (star.isVariable) {
+                variableStarSection.classList.remove('hidden');
+                
+                // Get variable star data
+                const varData = multipleSystems[star.systemID].variable_data;
+                
+                // Update variable star information
+                document.getElementById('variable-star-text').textContent = 
+                    `${star.name} is a ${varData.type} type variable star with a period of ${varData.period} days. Its brightness varies from magnitude ${varData.max_mag} at maximum to ${varData.min_mag} at minimum, representing a change in brightness of approximately ${((10 ** ((varData.min_mag - varData.max_mag) / 2.5))).toFixed(1)} times.`;
+                
+                document.getElementById('min-magnitude').textContent = varData.min_mag;
+                document.getElementById('max-magnitude').textContent = varData.max_mag;
+                document.getElementById('period-value').textContent = varData.period;
+                
+                // Draw light curve
+                drawLightCurve(star.systemID);
+                
+                // Show radio flare information if applicable
+                const radioFlareSection = document.getElementById('radio-flare');
+                if (varData.radio_flare && variableStarData[star.systemID].radioFlare) {
+                    radioFlareSection.classList.remove('hidden');
+                    document.getElementById('radio-flare-text').textContent = variableStarData[star.systemID].radioFlare.description;
+                } else {
+                    radioFlareSection.classList.add('hidden');
+                }
+                
+            } else {
+                variableStarSection.classList.add('hidden');
+                document.getElementById('radio-flare').classList.add('hidden');
+            }
+        }
+
+        // Close details panel
+        document.getElementById('close-details').addEventListener('click', () => {
+            document.getElementById('star-details').classList.add('hidden');
+        });
+
+        // Toggle proper motion display
+        document.getElementById('toggle-proper-motion').addEventListener('click', () => {
+            const button = document.getElementById('toggle-proper-motion');
+            const timeControls = document.getElementById('time-controls');
+            const arrows = d3.selectAll('.motion-arrow');
+            
+            if (button.classList.contains('bg-blue-500')) {
+                // Show proper motion
+                button.classList.remove('bg-blue-500');
+                button.classList.add('bg-green-500');
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span class="ml-1">Proper Motion Visible</span>
+                `;
+                timeControls.classList.remove('hidden');
+                arrows.style('opacity', 0.8);
+            } else {
+                // Hide proper motion
+                button.classList.remove('bg-green-500');
+                button.classList.add('bg-blue-500');
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span class="ml-1">Show Proper Motion</span>
+                `;
+                timeControls.classList.add('hidden');
+                arrows.style('opacity', 0);
+                
+                // Reset star positions
+                updateStarPositions(0);
+            }
+        });
+        
+        // Toggle constellation features display
+        document.getElementById('toggle-features').addEventListener('click', () => {
+            const button = document.getElementById('toggle-features');
+            const constellationFeatures = d3.selectAll('.constellation-feature');
+            
+            if (button.classList.contains('bg-blue-500')) {
+                // Show constellation features
+                button.classList.remove('bg-blue-500');
+                button.classList.add('bg-green-500');
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span class="ml-1">Features Visible</span>
+                `;
+                constellationFeatures.style('opacity', 0.8);
+            } else {
+                // Hide constellation features
+                button.classList.remove('bg-green-500');
+                button.classList.add('bg-blue-500');
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                    </svg>
+                    <span class="ml-1">Show Constellation Features</span>
+                `;
+                constellationFeatures.style('opacity', 0);
+            }
+        });
+        
+        // Toggle variable stars display
+        document.getElementById('toggle-variable').addEventListener('click', () => {
+            const button = document.getElementById('toggle-variable');
+            const variableGroups = d3.selectAll('.variable-group');
+            
+            if (button.classList.contains('bg-blue-500')) {
+                // Show variable star effects
+                button.classList.remove('bg-blue-500');
+                button.classList.add('bg-green-500');
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span class="ml-1">Variable Stars Animated</span>
+                `;
+                variableGroups.style('opacity', 1);
+            } else {
+                // Hide variable star effects
+                button.classList.remove('bg-green-500');
+                button.classList.add('bg-blue-500');
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+                    </svg>
+                    <span class="ml-1">Show Variable Stars</span>
+                `;
+                variableGroups.style('opacity', 0);
+            }
+        });
+        
+        // Time slider functionality
+        document.getElementById('time-slider').addEventListener('input', (e) => {
+            const percent = e.target.value;
+            const timeScale = parseInt(document.getElementById('time-scale').value);
+            const years = Math.round(timeScale * percent / 100);
+            
+            // Update time display
+            document.getElementById('time-display').textContent = `${years.toLocaleString()} years`;
+            
+            // Show tooltip
+            const tooltip = document.getElementById('slider-tooltip');
+            tooltip.classList.remove('hidden');
+            tooltip.textContent = `${years.toLocaleString()} years`;
+            
+            // Position tooltip - calculate position based on slider width and value
+            const sliderRect = e.target.getBoundingClientRect();
+            const tooltipX = sliderRect.left + (sliderRect.width * percent / 100);
+            tooltip.style.left = `${tooltipX}px`;
+            tooltip.style.top = `${sliderRect.top - 25}px`;
+            
+            // Update star positions
+            updateStarPositions(years);
+        });
+        
+        // Hide tooltip when not interacting with slider
+        document.getElementById('time-slider').addEventListener('mouseout', () => {
+            document.getElementById('slider-tooltip').classList.add('hidden');
+        });
+        
+        // Change time scale
+        document.getElementById('time-scale').addEventListener('change', () => {
+            // Reset the slider to 0
+            document.getElementById('time-slider').value = 0;
+            document.getElementById('time-display').textContent = "0 years";
+            updateStarPositions(0);
+        });
+        
+        // Reset motion button
+        document.getElementById('reset-motion').addEventListener('click', () => {
+            document.getElementById('time-slider').value = 0;
+            document.getElementById('time-display').textContent = "0 years";
+            updateStarPositions(0);
+        });
+        
+        // Animation for proper motion
+        let animationFrameId = null;
+        
+        document.getElementById('play-motion').addEventListener('click', () => {
+            const button = document.getElementById('play-motion');
+            
+            if (button.textContent.includes('Play')) {
+                // Start animation
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Pause Animation
+                `;
+                
+                const slider = document.getElementById('time-slider');
+                const timeScale = parseInt(document.getElementById('time-scale').value);
+                let startTime = null;
+                
+                function animate(timestamp) {
+                    if (!startTime) startTime = timestamp;
+                    const elapsed = timestamp - startTime;
+                    
+                    // Move 100% in 15 seconds (15000ms)
+                    const newValue = Math.min(100, elapsed / 150);
+                    slider.value = newValue;
+                    
+                    const years = Math.round(timeScale * newValue / 100);
+                    document.getElementById('time-display').textContent = `${years.toLocaleString()} years`;
+                    
+                    updateStarPositions(years);
+                    
+                    if (newValue < 100) {
+                        animationFrameId = requestAnimationFrame(animate);
+                    } else {
+                        // Animation complete, reset button
+                        button.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Play Animation
+                        `;
+                    }
+                }
+                
+                animationFrameId = requestAnimationFrame(animate);
+            } else {
+                // Stop animation
+                cancelAnimationFrame(animationFrameId);
+                button.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Play Animation
+                `;
+            }
+        });
+
+        // Initialize
+        window.addEventListener('load', () => {
+            initializeStarMap();
+            updateViews();
+            
+            // Add event listeners for filters
+            document.getElementById('magnitude-filter').addEventListener('change', updateViews);
+            document.getElementById('sort-by').addEventListener('change', updateViews);
+            document.getElementById('search').addEventListener('input', updateViews);
+            document.getElementById('display-mode').addEventListener('change', updateViews);
+            
+            // Add event listeners for table sorting
+            document.querySelectorAll('th[data-sort]').forEach(header => {
+                header.addEventListener('click', () => {
+                    document.getElementById('sort-by').value = header.dataset.sort;
+                    updateViews();
+                });
+            });
+            
+            // Initialize search for "X Oph" to showcase the feature
+            document.getElementById('search').value = "X Oph";
+            updateViews();
+            
+            // Set a timeout to focus on the X Ophiuchi system
+            setTimeout(() => {
+                const xOph = starsData.find(s => s.name === "X Oph");
+                if (xOph) {
+                    // Show constellation features
+                    document.getElementById('toggle-features').click();
+                    // Show variable star animations
+                    document.getElementById('toggle-variable').click();
+                    // Focus on the star
+                    focusOnStar(xOph);
+                    // Show star details
+                    showStarDetails(xOph);
+                }
+            }, 1500);
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            initializeStarMap();
+            updateViews();
+        });
+    </script>
+</body>
+</html>
